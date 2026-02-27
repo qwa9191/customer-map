@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>枫杨 - 业务客户地图</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box;font-family:Microsoft YaHei, sans-serif;}
+  html,body{height:100%;}
+  body{display:flex;flex-direction:column;}
+  #top{
+    background:#2d5afe;color:white;padding:12px 15px;
+    font-size:16px;font-weight:bold;
+    display:flex;justify-content:space-between;align-items:center;
+    flex-wrap:wrap;gap:8px;
+  }
+  .stats{display:flex;gap:8px;font-size:12px;flex-wrap:wrap;}
+  .stat-item{background:rgba(255,255,255,0.2);padding:4px 6px;border-radius:4px;white-space:nowrap;}
+  #main{flex:1;display:flex;flex-direction:row;width:100%;}
+  #map{flex:1;height:100%;min-height:300px;}
+  #panel{
+    width:360px;background:#f6f7f9;border-left:1px solid #ddd;
+    padding:15px;overflow-y:auto;
+  }
+  @media (max-width:768px){
+    #main{flex-direction:column;}
+    #panel{width:100%;max-height:50vh;border-left:none;border-top:1px solid #ddd;}
+    #top{font-size:14px;}
+  }
+  .form-item{margin-bottom:10px;}
+  .form-item label{display:block;margin-bottom:4px;font-size:14px;color:#333;}
+  .form-item input,.form-item textarea,.form-item select{
+    width:100%;padding:8px;border:1px solid #ccc;border-radius:4px;font-size:14px;
+  }
+  button{
+    background:#2d5afe;color:white;border:none;padding:8px 12px;
+    border-radius:4px;cursor:pointer;margin-right:6px;margin-bottom:6px;
+    font-size:14px;
+  }
+  .btn-danger{background:#f56c6c;}
+  .btn-export{background:#07a18d;}
+  .btn-clear{background:#ff9800;}
+  .filter-bar{margin:10px 0;display:flex;gap:6px;flex-wrap:wrap;}
+  .filter-btn{padding:6px 8px;border:none;border-radius:4px;color:white;font-size:12px;cursor:pointer;}
+  .customer-item{
+    background:white;padding:10px;border-radius:6px;margin-bottom:8px;
+    border:1px solid #eee;cursor:pointer;
+  }
+  .customer-item .name{font-weight:bold;font-size:14px;color:#222;}
+  .tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:12px;color:white;margin-top:4px;}
+  .tag1{background:#00C48C;}
+  .tag2{background:#4096FF;}
+  .tag3{background:#FF7D00;}
+  .tag4{background:#FF3333;}
+  .tag5{background:#FFCC00;color:#333;}
+  .excel-group{margin:10px 0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+
+<body>
+<div id="top">
+  枫杨 - 业务客户地图
+  <div class="stats" id="stats"></div>
+</div>
+<div id="main">
+  <div id="map"></div>
+  <div id="panel">
+    <div class="form-item">
+      <label>客户名称</label>
+      <input type="text" id="c_name" placeholder="如：XX工厂">
+    </div>
+    <div class="form-item">
+      <label>联系电话</label>
+      <input type="text" id="c_tel" placeholder="可选">
+    </div>
+    <div class="form-item">
+      <label>详细地址</label>
+      <textarea id="c_addr" rows="2" placeholder="必填，用于定位"></textarea>
+    </div>
+    <div class="form-item">
+      <label>客户状态</label>
+      <select id="c_type">
+        <option value="1">合作中</option>
+        <option value="2">刚开发</option>
+        <option value="3">重点跟进</option>
+        <option value="4">绝不合作</option>
+        <option value="5">合作过</option>
+      </select>
+    </div>
+    <div class="form-item">
+      <label>备注</label>
+      <textarea id="c_remark" rows="2" placeholder="业务、需求、规模等"></textarea>
+    </div>
+
+    <button onclick="addCustomer()">添加/保存客户</button>
+    <button class="btn-danger" onclick="deleteCurrent()">删除客户</button>
+    <button onclick="clearEdit()">清空</button>
+
+    <div class="excel-group">
+      <input type="file" id="excelFile" accept=".xlsx,.xls" style="font-size:12px;">
+      <button onclick="importExcel()" style="background:#07a18d;">导入Excel</button>
+      <button class="btn-export" onclick="exportExcel()">导出Excel</button>
+      <button class="btn-clear" onclick="clearAllData()">清空数据</button>
+    </div>
+
+    <div class="filter-bar">
+      <button class="filter-btn" onclick="filterType(0)" style="background:#666">全部</button>
+      <button class="filter-btn" onclick="filterType(1)" style="background:#00C48C;">合作中</button>
+      <button class="filter-btn" onclick="filterType(2)" style="background:#4096FF;">刚开发</button>
+      <button class="filter-btn" onclick="filterType(3)" style="background:#FF7D00;">重点跟进</button>
+      <button class="filter-btn" onclick="filterType(4)" style="background:#FF3333;">绝不合作</button>
+      <button class="filter-btn" onclick="filterType(5)" style="background:#FFCC00;color:#333">合作过</button>
+    </div>
+
+    <h4 style="margin:10px 0;font-size:14px;">客户列表</h4>
+    <div id="customer_list"></div>
+  </div>
+</div>
+
+<script src="https://webapi.amap.com/maps?v=2.0&key=3926579047ecdd30095d69decd5ce8e1"></script>
+<script>
+var map = new AMap.Map('map', {
+  zoom: 12,
+  center: [112.9388, 28.2282]
+});
+
+var currentEditId = null;
+var markers = [];
+var customerData = [];
+var filterTypeVal = 0;
+
+const typeConfig = {
+  1: { name:"合作中", color:"#00C48C" },
+  2: { name:"刚开发", color:"#4096FF" },
+  3: { name:"重点跟进", color:"#FF7D00" },
+  4: { name:"绝不合作", color:"#FF3333" },
+  5: { name:"合作过", color:"#FFCC00" },
+};
+const iconUrl = {
+  1: "https://webapi.amap.com/theme/v1/markers/markers/green.png",
+  2: "https://webapi.amap.com/theme/v1/markers/markers/blue.png",
+  3: "https://webapi.amap.com/theme/v1/markers/markers/orange.png",
+  4: "https://webapi.amap.com/theme/v1/markers/markers/red.png",
+  5: "https://webapi.amap.com/theme/v1/markers/markers/yellow.png",
+};
+
+loadData();
+
+function geocode(address, callback) {
+  var geocoder = new AMap.Geocoder({ city: "长沙" });
+  geocoder.getLocation(address, function (status, result) {
+    if (status === 'complete' && result.geocodes.length) {
+      var pos = result.geocodes[0].location;
+      callback(pos.lng, pos.lat);
+    } else {
+      callback(null, null);
+    }
+  });
+}
+
+async function batchGeocode(list) {
+  for (let item of list) {
+    await new Promise(resolve => {
+      geocode(item.addr, (lng, lat) => {
+        if (lng && lat) {
+          item.lng = lng;
+          item.lat = lat;
+        }
+        resolve();
+      });
+    });
+  }
+  customerData.push(...list);
+  saveAndRefresh();
+  alert("Excel 导入完成！");
+}
+
+function importExcel() {
+  var fileInput = document.getElementById('excelFile');
+  if (!fileInput.files[0]) { alert("请先选择Excel文件"); return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var data = new Uint8Array(e.target.result);
+    var workbook = XLSX.read(data, { type: 'array' });
+    var firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    var json = XLSX.utils.sheet_to_json(firstSheet);
+    var importList = [];
+    json.forEach(row => {
+      var name = row['客户名称'] || '';
+      var tel = row['电话'] || '';
+      var addr = row['地址'] || '';
+      var typeStr = String(row['状态'] || '').trim();
+      var remark = row['备注'] || '';
+      var type = 1;
+      if (typeStr.includes('刚开发')) type = 2;
+      else if (typeStr.includes('重点')) type = 3;
+      else if (typeStr.includes('绝不合作')) type = 4;
+      else if (typeStr.includes('合作过')) type = 5;
+      else if (typeStr.includes('合作中')) type = 1;
+      if (name && addr) {
+        importList.push({ id:Date.now()+Math.random(), name, tel, addr, type, remark, lng:null, lat:null });
+      }
+    });
+    if (importList.length === 0) { alert("未识别到有效客户"); return; }
+    batchGeocode(importList);
+  };
+  reader.readAsArrayBuffer(fileInput.files[0]);
+}
+
+function exportExcel() {
+  var exportData = customerData.map(item => ({
+    "客户名称": item.name,
+    "电话": item.tel || "",
+    "地址": item.addr,
+    "状态": typeConfig[item.type].name,
+    "备注": item.remark || ""
+  }));
+  var ws = XLSX.utils.json_to_sheet(exportData);
+  var wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "客户列表");
+  XLSX.writeFile(wb, "客户地图数据.xlsx");
+}
+
+function clearAllData() {
+  if (!confirm("确定要清空所有客户数据？此操作不可恢复！")) return;
+  customerData = [];
+  saveAndRefresh();
+  alert("已清空所有数据");
+}
+
+function addCustomer() {
+  var name = document.getElementById('c_name').value.trim();
+  var tel = document.getElementById('c_tel').value.trim();
+  var addr = document.getElementById('c_addr').value.trim();
+  var type = document.getElementById('c_type').value;
+  var remark = document.getElementById('c_remark').value.trim();
+  if (!name || !addr) { alert("客户名称和地址不能为空"); return; }
+  geocode(addr, function (lng, lat) {
+    if (!lng || !lat) { alert("地址定位失败"); return; }
+    var item = { id: currentEditId || Date.now(), name, tel, addr, type, remark, lng, lat };
+    if (currentEditId === null) customerData.push(item);
+    else {
+      var index = customerData.findIndex(x => x.id == currentEditId);
+      if (index >= 0) customerData[index] = item;
+    }
+    saveAndRefresh();
+    clearEdit();
+  });
+}
+
+function renderAllMarkers() {
+  clearMarkers();
+  var showList = filterTypeVal === 0 ? customerData : customerData.filter(item => item.type == filterTypeVal);
+  showList.forEach(item => {
+    if (!item.lng || !item.lat) return;
+    var marker = new AMap.Marker({
+      position: [item.lng, item.lat],
+      title: item.name,
+      icon: iconUrl[item.type],
+      map: map
+    });
+    var cfg = typeConfig[item.type];
+    var content = `
+      <div style="min-width:200px;padding:8px;">
+        <div style="font-weight:bold;margin-bottom:6px;">${item.name}</div>
+        <div style="font-size:12px;margin-bottom:4px;">📞 ${item.tel || '无'}</div>
+        <div style="font-size:12px;margin-bottom:4px;">📍 ${item.addr}</div>
+        <div style="font-size:12px;color:${cfg.color};font-weight:bold;">${cfg.name}</div>
+        <div style="font-size:12px;color:#666;margin-top:4px;">${item.remark || ''}</div>
+      </div>`;
+    marker.on('click', () => {
+      new AMap.InfoWindow({ content }).open(map, marker.getPosition());
+    });
+    markers.push(marker);
+  });
+  renderList();
+  refreshStats();
+}
+
+function renderList() {
+  var html = '';
+  var showList = filterTypeVal === 0 ? customerData : customerData.filter(item => item.type == filterTypeVal);
+  showList.forEach(item => {
+    var cfg = typeConfig[item.type];
+    html += `
+    <div class="customer-item" onclick="editCustomer(${item.id})">
+      <div class="name">${item.name}</div>
+      <span class="tag tag${item.type}">${cfg.name}</span>
+    </div>`;
+  });
+  document.getElementById('customer_list').innerHTML = html;
+}
+
+function refreshStats() {
+  var total = customerData.length;
+  var t1 = customerData.filter(i=>i.type==1).length;
+  var t2 = customerData.filter(i=>i.type==2).length;
+  var t3 = customerData.filter(i=>i.type==3).length;
+  var t4 = customerData.filter(i=>i.type==4).length;
+  var t5 = customerData.filter(i=>i.type==5).length;
+  document.getElementById('stats').innerHTML = `
+    <div class="stat-item">总数 ${total}</div>
+    <div class="stat-item">合作中 ${t1}</div>
+    <div class="stat-item">刚开发 ${t2}</div>
+    <div class="stat-item">重点跟进 ${t3}</div>
+    <div class="stat-item">绝不合作 ${t4}</div>
+    <div class="stat-item">合作过 ${t5}</div>
+  `;
+}
+
+function filterType(val) {
+  filterTypeVal = val;
+  renderAllMarkers();
+}
+
+function editCustomer(id) {
+  var item = customerData.find(x => x.id == id);
+  if (!item) return;
+  currentEditId = item.id;
+  document.getElementById('c_name').value = item.name;
+  document.getElementById('c_tel').value = item.tel || '';
+  document.getElementById('c_addr').value = item.addr;
+  document.getElementById('c_type').value = item.type;
+  document.getElementById('c_remark').value = item.remark || '';
+}
+
+function clearEdit() {
+  currentEditId = null;
+  document.getElementById('c_name').value = '';
+  document.getElementById('c_tel').value = '';
+  document.getElementById('c_addr').value = '';
+  document.getElementById('c_type').value = 1;
+  document.getElementById('c_remark').value = '';
+}
+
+function deleteCurrent() {
+  if (!currentEditId) { alert("请先选择要删除的客户"); return; }
+  if (!confirm("确定删除该客户？")) return;
+  customerData = customerData.filter(x => x.id != currentEditId);
+  saveAndRefresh();
+  clearEdit();
+}
+
+function clearMarkers() {
+  markers.forEach(m => m.remove());
+  markers = [];
+}
+
+function saveAndRefresh() {
+  localStorage.setItem("customer_map_final_all", JSON.stringify(customerData));
+  renderAllMarkers();
+}
+
+function loadData() {
+  var data = localStorage.getItem("customer_map_final_all");
+  if (data) customerData = JSON.parse(data);
+  renderAllMarkers();
+}
+</script>
+</body>
+</html>
